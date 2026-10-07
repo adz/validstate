@@ -1,0 +1,49 @@
+{
+  "$schema": "http://json.schemastore.org/template",
+  "author": "Adam Davies",
+  "classifications": [
+    "Desktop",
+    "Avalonia",
+    "Elmish",
+    "F#"
+  ],
+  "identity": "Validstate.App",
+  "name": "validstate app: F#, Avalonia, Elmish, Axial, Reified, NativeAOT",
+  "description": "An all-F# desktop app on Avalonia 12 and ShadUI with Elmish.Avalonia.Glue, Axial (Guardrails at error severity), Reified settings, headless UI tests, a NativeAOT self-test, and CI and release workflows.",
+  "shortName": "validstate-app",
+  "sourceName": "MyApp",
+  "preferNameDirectory": true,
+  "tags": {
+    "language": "F#",
+    "type": "solution"
+  },
+  "symbols": {
+    "repository": {
+      "type": "parameter",
+      "datatype": "text",
+      "defaultValue": "owner/repo",
+      "replaces": "OWNER/REPO",
+      "description": "The GitHub owner/repo, used in the installer and README."
+    },
+    "publisher": {
+      "type": "parameter",
+      "datatype": "text",
+      "defaultValue": "Your Name",
+      "replaces": "AUTHOR_NAME",
+      "description": "Your name or organisation: the app's author and the installer's publisher."
+    }
+  },
+  "sources": [
+    {
+      "modifiers": [
+        {
+          "exclude": [
+            "**/bin/**",
+            "**/obj/**",
+            "**/artifacts/**"
+          ]
+        }
+      ]
+    }
+  ]
+}

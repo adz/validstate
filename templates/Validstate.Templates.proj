@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.Build.NoTargets/3.7.134">
+  <!-- Packs the dotnet new templates under content/ into the Validstate.Templates NuGet package. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <PackageType>Template</PackageType>
+    <PackageId>Validstate.Templates</PackageId>
+    <Version>0.1.0</Version>
+    <Title>validstate templates</Title>
+    <Authors>Adam Davies</Authors>
+    <Description>dotnet new templates for F# apps on the validstate libraries: Axial, Reified and Elmish.Avalonia.Glue, with Avalonia, NativeAOT, headless tests and release workflows.</Description>
+    <PackageTags>dotnet-new;templates;fsharp;avalonia;elmish;axial;reified;nativeaot</PackageTags>
+    <PackageProjectUrl>https://github.com/adz/validstate</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/adz/validstate</RepositoryUrl>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <IncludeContentInPack>true</IncludeContentInPack>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <ContentTargetFolders>content</ContentTargetFolders>
+    <NoWarn>$(NoWarn);NU5128</NoWarn>
+    <NoDefaultExcludes>true</NoDefaultExcludes>
+  </PropertyGroup>
+  <ItemGroup>
+    <Content Include="content/**/*" Exclude="content/**/bin/**;content/**/obj/**;content/**/artifacts/**" />
+    <Compile Remove="**/*" />
+    <None Include="README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+</Project>

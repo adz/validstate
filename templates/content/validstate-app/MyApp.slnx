@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/MyApp.Core/MyApp.Core.fsproj" />
+    <Project Path="src/MyApp/MyApp.fsproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/MyApp.Tests/MyApp.Tests.fsproj" />
+  </Folder>
+</Solution>

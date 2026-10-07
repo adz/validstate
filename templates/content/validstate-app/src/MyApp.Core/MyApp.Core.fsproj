@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>MyApp</RootNamespace>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Folder.fs" />
+    <Compile Include="Settings.fs" />
+    <Compile Include="Env.fs" />
+    <Compile Include="Runtime.fs" />
+    <Compile Include="FlowCmd.fs" />
+    <Compile Include="App.fs" />
+    <Compile Include="SelfTest.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Axial" />
+    <PackageReference Include="Axial.FileSystem" />
+    <PackageReference Include="Axial.PlatformService" />
+    <PackageReference Include="Reified.Schema" />
+    <PackageReference Include="Elmish" />
+  </ItemGroup>
+</Project>

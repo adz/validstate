@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      # fontconfig for SkiaSharp in the headless UI tests; clang and zlib for NativeAOT.
+      - name: Install native prerequisites
+        run: sudo apt-get update && sudo apt-get install -y libfontconfig1 clang zlib1g-dev
+
+      - name: Restore
+        run: dotnet restore MyApp.slnx
+
+      - name: Build
+        run: dotnet build MyApp.slnx --configuration Release --no-restore --nologo -v minimal -m:1
+
+      # Includes the headless Avalonia scenario, which drives the real window.
+      - name: Test
+        run: dotnet test --project tests/MyApp.Tests/MyApp.Tests.fsproj --configuration Release --no-build
+
+      # Unit tests run on the JIT; the self-test runs the NativeAOT binary over paths that only fail there.
+      - name: NativeAOT self-test
+        run: |
+          bash scripts/publish.sh --rid linux-x64 --output artifacts/publish/linux-x64
+          artifacts/publish/linux-x64/myapp --self-test

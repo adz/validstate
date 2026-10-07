@@ -61,12 +61,31 @@ Skills appear as `$validstate-axial` and so on.
 
 Download this repository as a zip, then go to **Customize → Plugins → Add → Upload plugin**.
 
+## Templates
+
+`dotnet new validstate-app` creates an all-F# Avalonia app with everything these skills describe already in place, so a new project starts out passing its own checks:
+
+- Elmish with F# viewmodels through Glue, using thread-safe delivery;
+- Axial services under Guardrails, and an Axial runtime with a debounced, latest-wins pipeline;
+- Reified settings;
+- behaviour, real-I/O and headless UI tests;
+- a NativeAOT `--self-test`;
+- CI and release workflows.
+
+```sh
+dotnet new install Validstate.Templates
+dotnet new validstate-app -n MyTool --publisher "Your Name" --repository you/mytool
+```
+
+See [templates/README.md](templates/README.md). CI generates a project from the template on every push and proves it builds, tests and self-tests as NativeAOT.
+
 ## Layout
 
 ```text
 .claude-plugin/plugin.json        the plugin (Claude Code, Claude.ai)
 .claude-plugin/marketplace.json   makes this repository installable as a marketplace
 skills/<name>/SKILL.md            one folder per skill, in the shared Agent Skills format
+templates/                        the dotnet new templates, packed as Validstate.Templates
 ```
 
 ## License

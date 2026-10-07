@@ -1,0 +1,54 @@
+<shadui:Window
+    x:Class="MyApp.UI.MainWindow"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:shadui="clr-namespace:ShadUI;assembly=ShadUI"
+    xmlns:ui="clr-namespace:MyApp.UI"
+    x:DataType="ui:MainVm"
+    Title="MyApp"
+    TitleFontWeight="SemiBold"
+    Width="900"
+    Height="620"
+    MinWidth="520"
+    MinHeight="360"
+    WindowStartupLocation="CenterScreen">
+
+    <shadui:Window.KeyBindings>
+        <KeyBinding Gesture="F5" Command="{Binding RefreshCommand}" />
+    </shadui:Window.KeyBindings>
+
+    <shadui:Window.RightWindowTitleBarContent>
+        <Button Classes="Ghost" Height="30" Padding="10,0" Margin="0,0,6,0"
+                Content="Theme" ToolTip.Tip="Switch light / dark" Command="{Binding ToggleThemeCommand}" />
+    </shadui:Window.RightWindowTitleBarContent>
+
+    <DockPanel Margin="16">
+        <StackPanel DockPanel.Dock="Top" Spacing="10">
+            <TextBlock Text="{Binding Folder}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+            <TextBox x:Name="FilterBox" Height="36" PlaceholderText="Filter by name"
+                     Text="{Binding Filter, Mode=TwoWay}" />
+        </StackPanel>
+
+        <TextBlock DockPanel.Dock="Bottom" Margin="0,10,0,0" Text="{Binding Status}" Opacity="0.7" />
+
+        <ListBox x:Name="EntriesList" Margin="0,12,0,0" ItemsSource="{Binding Entries}">
+            <ListBox.Styles>
+                <Style Selector="ListBoxItem">
+                    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                </Style>
+            </ListBox.Styles>
+            <ListBox.ItemsPanel>
+                <ItemsPanelTemplate><VirtualizingStackPanel /></ItemsPanelTemplate>
+            </ListBox.ItemsPanel>
+            <ListBox.ItemTemplate>
+                <DataTemplate x:DataType="ui:EntryVm">
+                    <Grid ColumnDefinitions="64,*,Auto">
+                        <TextBlock Text="{Binding Kind}" Opacity="0.6" />
+                        <TextBlock Grid.Column="1" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Grid.Column="2" Text="{Binding SizeText}" Opacity="0.6" />
+                    </Grid>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+    </DockPanel>
+</shadui:Window>
