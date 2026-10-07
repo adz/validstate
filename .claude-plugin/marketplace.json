@@ -1,0 +1,15 @@
+{
+  "name": "validstate",
+  "description": "Tools for building on the validstate libraries: Axial, Reified and Elmish.Avalonia.Glue.",
+  "owner": {
+    "name": "Adam Davies",
+    "url": "https://github.com/adz"
+  },
+  "plugins": [
+    {
+      "name": "validstate",
+      "source": "./",
+      "description": "Skills for Axial, Reified, Elmish.Avalonia.Glue, and all-F# Avalonia apps with NativeAOT."
+    }
+  ]
+}
