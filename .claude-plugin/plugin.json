@@ -2,7 +2,7 @@
   "name": "validstate",
   "displayName": "validstate",
   "description": "Skills for building reliable F# software with Axial, Reified and Elmish.Avalonia.Glue: explicit effects and streams under Axial.Guardrails, validated models and codecs, all-F# Avalonia UIs, and NativeAOT.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": {
     "name": "Adam Davies",
     "url": "https://github.com/adz"
@@ -10,5 +10,12 @@
   "homepage": "https://validstate.dev",
   "repository": "https://github.com/adz/validstate",
   "license": "Apache-2.0",
-  "keywords": ["fsharp", "axial", "reified", "elmish", "avalonia", "nativeaot"]
+  "keywords": [
+    "fsharp",
+    "axial",
+    "reified",
+    "elmish",
+    "avalonia",
+    "nativeaot"
+  ]
 }

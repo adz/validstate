@@ -16,6 +16,8 @@ The skills teach an agent (Claude, Codex, pi) how to use these libraries well. T
 | `validstate-reified` | Declaring settings, config or DTO shapes, validating input, refining values into types that carry their invariants, and parsing JSON into `Data`. |
 | `validstate-elmish-avalonia-glue` | Connecting an Elmish program to Avalonia with F# viewmodels: projections, keyed lists, two-way text, and delivering background results safely. |
 | `validstate-fsharp-avalonia-aot` | Building an all-F# Avalonia 12 app with ShadUI that publishes with NativeAOT. |
+| `validstate-modelling` | Designing types and errors so invalid states can't be built: where each rule lives, failures as data, results through Elmish with any host (Glue, FuncUI, Elmish.WPF, Fabulous, Fable), untrusted input, time and identity. |
+| `validstate-verify` | Proving the app works before calling it done: behaviour tests, real-I/O service tests, headless UI, a self-test inside the NativeAOT binary, and CI reproduced on a clean machine. |
 
 Agents load a skill by themselves when a task matches its description. You can also ask for one by name.
 
