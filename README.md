@@ -6,7 +6,7 @@ Agent skills for building reliable F# software on the validstate libraries:
 - [Reified](https://github.com/adz/Reified): declare value and model invariants once; derive validation, parsing and codecs.
 - [Elmish.Avalonia.Glue](https://github.com/adz/Elmish.Avalonia.Glue): Elmish state behind normal Avalonia AXAML.
 
-The skills teach an agent (Claude, Codex, pi) how to use these libraries well. They cover the patterns that work, the mistakes that compile but fail at runtime, and where to look up exact signatures. They come from building [Logs Digger](https://github.com/adz/logs-digger), an all-F# desktop app on all three. More on the libraries at [validstate.dev](https://validstate.dev).
+The skills teach an agent (Claude, Codex, pi) how to use these libraries well. They cover the patterns that work, the mistakes that compile but fail at runtime, and where to look up exact signatures. They come from building [Log Dug](https://github.com/adz/logdug), an all-F# desktop app on all three. More on the libraries at [validstate.dev](https://validstate.dev).
 
 ## Skills
 

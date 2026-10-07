@@ -203,4 +203,4 @@ Before guessing an overload or a constraint, read the API reference. Hidden requ
 - API index for agents: https://adz.github.io/Axial/llms.txt
 - Docs: https://adz.github.io/Axial/
 
-[Logs Digger](https://github.com/adz/logs-digger), a log viewer built on all of these libraries, is the complete worked example these notes come from. The `Files` service, the runtime root and the search pipeline sketched above are in its `src/LogsDigger.Core/Files/`, `Runtime.fs` and `Search.fs`.
+[Log Dug](https://github.com/adz/logdug), a log viewer built on all of these libraries, is the complete worked example these notes come from. The `Files` service, the runtime root and the search pipeline sketched above are in its `src/LogDug.Core/Files/`, `Runtime.fs` and `Search.fs`.

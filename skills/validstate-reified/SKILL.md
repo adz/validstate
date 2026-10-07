@@ -106,4 +106,4 @@ Numbers keep their original token text; parse them with `Double.TryParse(token, 
 - API index for agents: https://adz.github.io/Reified/llms.txt
 - Docs: https://adz.github.io/Reified/
 
-[Logs Digger](https://github.com/adz/logs-digger), a log viewer built on all of these libraries, is the complete worked example these notes come from. The settings schema and the `SearchPattern` refinement above are in its `Settings.fs` and `Pattern.fs`.
+[Log Dug](https://github.com/adz/logdug), a log viewer built on all of these libraries, is the complete worked example these notes come from. The settings schema and the `SearchPattern` refinement above are in its `Settings.fs` and `Pattern.fs`.

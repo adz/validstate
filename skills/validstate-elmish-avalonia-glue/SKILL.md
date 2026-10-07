@@ -102,4 +102,4 @@ Run the whole scenario on one dedicated thread, because the headless dispatcher 
 - API index for agents: https://adz.github.io/Elmish.Avalonia.Glue/llms.txt
 - Docs: https://adz.github.io/Elmish.Avalonia.Glue/
 
-[Logs Digger](https://github.com/adz/logs-digger), a log viewer built on all of these libraries, is the complete worked example these notes come from. Its `ViewModels.fs`, `Bindable.fs` and `Shell.fs` show the projection viewmodels, the change-only setter and the inline post; `tests/LogsDigger.Tests/Screenshots.fs` is the headless test.
+[Log Dug](https://github.com/adz/logdug), a log viewer built on all of these libraries, is the complete worked example these notes come from. Its `ViewModels.fs`, `Bindable.fs` and `Shell.fs` show the projection viewmodels, the change-only setter and the inline post; `tests/LogDug.Tests/Screenshots.fs` is the headless test.

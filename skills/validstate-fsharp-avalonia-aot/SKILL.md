@@ -77,4 +77,4 @@ Work around it without C#:
 
 ## Reference
 
-[Logs Digger](https://github.com/adz/logs-digger), a log viewer built on all of these libraries, is the complete worked example these notes come from. Its `src/LogsDigger/` is an all-F# Avalonia 12 app on ShadUI, with the `LogLine` control above, compiled bindings throughout, a `--self-test` for NativeAOT binaries, and CI that publishes NativeAOT for Windows, Linux and macOS.
+[Log Dug](https://github.com/adz/logdug), a log viewer built on all of these libraries, is the complete worked example these notes come from. Its `src/LogDug/` is an all-F# Avalonia 12 app on ShadUI, with the `LogLine` control above, compiled bindings throughout, a `--self-test` for NativeAOT binaries, and CI that publishes NativeAOT for Windows, Linux and macOS.
