@@ -55,7 +55,8 @@ let readConfig (path: string) : Flow<'env, ConfigError, Config> when 'env :> IHa
 
 - `FileSystem.*` returns `Flow<'env, FileSystemError, _>`. Map it into your own error union at once.
 - `Flow.fromBlocking` runs CPU-heavy or synchronous work on the thread pool; thrown exceptions become defects. `Flow.attemptBlocking` puts them in the typed error channel as `exn`.
-- `Flow.orElseWith` recovers but keeps the same error type. To recover completely into `Never` (for example, "missing file means defaults"), use `Flow.fold (Some >> Flow.succeed) (fun _ -> Flow.succeed None)`.
+- `Flow.orElseWith` recovers but keeps the same error type. To recover completely into `Never` (for example, "missing file means defaults"), use `load |> Flow.map Some |> Flow.recover (fun _ -> Flow.succeed None)`.
+- Never recover errors with `Flow.fold`: its failure handler receives every `Cause`, including `Cause.Interrupt`, so a fold that returns a default turns a shutdown request into a normal result and the program keeps running. `Flow.recover` and `Flow.orElseWith` handle only the typed failure and let interruption and defects through.
 - `Flow.widenError` lifts a `Flow<_, Never, _>` into any error type.
 - `for x in xs do do! step x` works inside `flow { }`, including recursion (`let rec visit node = flow { ... do! visit child }`).
 - Give each error union a hand-written `ToString`. Guardrails AXG006 rejects `string error` or `$"{error}"` otherwise, because the generated `ToString` uses reflection that NativeAOT removes.
@@ -123,7 +124,7 @@ let walk descend root =                                      // lazy: a folder i
     FlowStream.unfoldFlow (function
         | [] -> Flow.succeed None
         | node :: rest when isContainer node && descend node ->
-            children node |> Flow.fold (fun found -> Flow.succeed (Some(node, found @ rest))) (fun _ -> Flow.succeed (Some(node, rest)))
+            children node |> Flow.map (fun found -> Some(node, found @ rest)) |> Flow.recover (fun _ -> Flow.succeed (Some(node, rest)))
         | node :: rest -> Flow.succeed (Some(node, rest))) [ root ]
 
 let search pattern root =
