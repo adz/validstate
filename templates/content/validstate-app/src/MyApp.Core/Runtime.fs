@@ -15,6 +15,8 @@ type Runtime internal (env: AppEnv, handle: AppHandle<Never, unit>) =
         member _.Dispose() =
             // Stop on the thread pool: disposal usually happens on the UI thread, whose synchronization
             // context would otherwise receive Stop's continuation while blocked waiting for it.
+            // IDisposable.Dispose is synchronous; this is the host boundary.
+            // axial-allow-effect: blocking
             Task.Run<unit>(fun () -> Async.StartAsTask(handle.Stop() |> Async.Ignore)).Wait(TimeSpan.FromSeconds 5.0)
             |> ignore
 
@@ -28,7 +30,7 @@ module Runtime =
             let! event =
                 Folder.list request.Folder
                 |> Flow.map (fun entries -> Listed(request.Id, entries |> List.filter (Folder.matches request.Filter)))
-                |> Flow.fold Flow.succeed (fun cause -> Flow.succeed (ListingFailed(request.Id, Cause.prettyPrint string cause)))
+                |> Flow.recover (fun error -> Flow.succeed (ListingFailed(request.Id, string error)))
 
             do! Hub.publish event listings |> Flow.ignore
         }
@@ -69,9 +71,15 @@ module Runtime =
 
         let handle = App.start platform root
 
+        // The UI needs the services before its first frame; startup is the host boundary.
+
+        // axial-allow-effect: blocking
         if not (ready.Task.Wait(TimeSpan.FromSeconds 10.0)) then
             invalidOp "The runtime did not start."
 
+        // Already completed by the Wait above.
+
+        // axial-allow-effect: blocking
         new Runtime(ready.Task.Result, handle)
 
     let live post = start (PlatformEnv.live ()) post

@@ -52,8 +52,8 @@ module SelfTest =
                 }
                 |> Flow.mapError FileSystemError.describe
 
-            let! results = checks root |> Flow.fold Flow.succeed (fun cause -> Flow.succeed [ check "self-test ran" false (Cause.prettyPrint id cause) ])
-            do! FileSystem.deleteDirectory root true |> Flow.fold Flow.succeed (fun _ -> Flow.succeed ())
+            let! results = checks root |> Flow.recover (fun error -> Flow.succeed [ check "self-test ran" false error ])
+            do! FileSystem.deleteDirectory root true |> Flow.recover (fun _ -> Flow.succeed ())
             return results
         }
 

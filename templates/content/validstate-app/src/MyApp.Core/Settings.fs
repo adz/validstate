@@ -61,7 +61,7 @@ module Settings =
     let load<'env when 'env :> IHasEnvironmentVariables and 'env :> IHasFileSystem> : Flow<'env, Never, Settings> =
         flow {
             let! folder = folder
-            let! text = FileSystem.readAllText (Path.Combine(folder, "settings.json")) |> Flow.fold (Some >> Flow.succeed) (fun _ -> Flow.succeed None)
+            let! text = FileSystem.readAllText (Path.Combine(folder, "settings.json")) |> Flow.map Some |> Flow.recover (fun _ -> Flow.succeed None)
             return text |> Option.bind (parse >> Result.toOption) |> Option.defaultValue defaults
         }
 
