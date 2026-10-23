@@ -1,6 +1,6 @@
 ---
 name: validstate-axial
-description: How to write F# effects with Axial (Flow, FlowStream, Queue, Hub, Cache, App, Axial.FileSystem, Axial.PlatformService) under Axial.Guardrails at error severity. Use when writing or reviewing F# code that reads files, the clock or environment variables, streams or searches data, runs background or long-lived work, designs an Axial service, or bridges flows into Elmish; when a build fails with AXG001-AXG006; or when adding Axial to a project.
+description: How to write F# effects with Axial (Flow, FlowStream, Queue, Hub, Cache, App, Axial.FileSystem, Axial.PlatformService) under Axial.Guardrails at error severity. Use when writing or reviewing F# code that reads files, the clock or environment variables, streams or searches data, runs background or long-lived work, designs an Axial service, or bridges flows into Elmish; when a build fails with AXG001-AXG008; or when adding Axial to a project.
 ---
 
 # Axial, the validstate way
@@ -188,12 +188,16 @@ Interface members take `unit` as their environment because the live implementati
 
 | Code | Meaning | Fix |
 | --- | --- | --- |
-| AXG001 | Direct ambient effect (File, Directory, DateTime.Now, Stopwatch, Task.Delay, Thread.Sleep, Environment, Console, Random, Guid.NewGuid) | Use the service (`FileSystem.*`, `Clock.now`, `Flow.sleep`, `EnvironmentVariables.tryGet`). At a real boundary write `// axial-allow-effect: <category>` on or above the line. |
+| AXG001 | Direct ambient effect (File, Directory, DateTime.Now, Stopwatch, Task.Delay, Thread.Sleep, Environment, Console, Random, Guid.NewGuid) | Use the service (`FileSystem.*`, `Clock.now`, `Flow.sleep`, `EnvironmentVariables.tryGet`). |
 | AXG002 | An allow directive that suppresses nothing | Delete it. |
 | AXG003 | `raise`/`failwith` inside `flow { }` | `return! Flow.fail error`, or `Flow.die` for a defect. |
 | AXG004 | Module-level `let` value in an xUnit test module | Make it a function: `let fixture () = ...`. |
 | AXG005 | `fun _ -> task` discarding the cancellation token in `Flow.fromTask`/`ColdTask` | Pass the token through. |
 | AXG006 | Reflection formatting (`%A`, `string` on a union or record without a `ToString` override) | Override `ToString`, or format fields explicitly. |
+| AXG007 | `Flow.fork` (or another fork) of a flow that acquires a scoped resource and returns it, so the fiber releases it on exit | Acquire it with `Flow.forkResource`, or with `Flow.zipPar`/`sequencePar` so it moves to the caller's scope. |
+| AXG008 | Returning a scope-owned service (`Queue.makeScoped`, `Hub.makeScoped`, `Hub.subscribe`, `Cache.make*`) from `Flow.run`/`RunSynchronously`/`StartAsTask`, whose scope closes on return | Use the service inside the flow, or keep its owning scope open (an `App` root or a `Layer`). |
+
+**Never add an `// axial-allow-*` directive to silence an error.** Move the effect into a service on the env and call it through the env. An allow directive is only for a genuine host boundary that a person has reviewed, never a way to make a build pass.
 
 `TimeZoneInfo.Local` and `System.IO.Path` are not flagged. `IFileSystem` members (`fs.DirectoryExists`, `fs.GetCurrentDirectory()`) are the sanctioned way to do synchronous checks at a boundary.
 

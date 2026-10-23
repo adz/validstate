@@ -23,6 +23,7 @@ let ``stack trace lines join the entry above them`` () =
 - **Test `update` with plain messages and models.** It's host-neutral, so the same tests serve Glue, FuncUI, Elmish.WPF, Fabulous and Fable.
 - **Use only OS-neutral paths** (`Path.Combine`, `Path.GetTempPath()`). A test with `C:\logs` in it passes on Windows and fails in Linux CI.
 - **Avoid module-level values in xUnit modules** (Guardrails AXG004). Use a function that returns a fresh fixture.
+- **Never add an `// axial-allow-*` directive to make a Guardrails error go away**, in tests or code. Move the effect into a service on the env (tests then pass a fake or a temp-folder live service).
 
 ## 2. Services: real I/O in a scratch folder
 

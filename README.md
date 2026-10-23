@@ -12,7 +12,7 @@ The skills teach an agent (Claude, Codex, pi) how to use these libraries well. T
 
 | Skill | Use it when |
 | --- | --- |
-| `validstate-axial` | Writing effects with Axial: `Flow`, `FlowStream`, `Queue`, `Hub`, `Cache`, `App`, file and clock services, Guardrails errors (AXG001-AXG006), and bridging flows into Elmish. |
+| `validstate-axial` | Writing effects with Axial: `Flow`, `FlowStream`, `Queue`, `Hub`, `Cache`, `App`, file and clock services, Guardrails errors (AXG001-AXG008), and bridging flows into Elmish. |
 | `validstate-reified` | Declaring settings, config or DTO shapes, validating input, refining values into types that carry their invariants, and parsing JSON into `Data`. |
 | `validstate-elmish-avalonia-glue` | Connecting an Elmish program to Avalonia with F# viewmodels: projections, keyed lists, two-way text, and delivering background results safely. |
 | `validstate-fsharp-avalonia-aot` | Building an all-F# Avalonia 12 app with ShadUI that publishes with NativeAOT. |
