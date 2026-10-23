@@ -1,6 +1,7 @@
 namespace MyApp
 
 open Axial
+open Axial.ElmishFlows
 open Elmish
 
 type Status =
@@ -25,17 +26,19 @@ type Msg =
     | ToggleTheme
 
 module App =
-    let private request env model =
+    let private request (runtime: Runtime) model =
         let requestId = model.RequestId + 1
         let command = { Id = requestId; Folder = model.Folder; Filter = model.Filter }
 
         { model with RequestId = requestId; Status = Loading },
-        Cmd.ofEffect (fun _ -> Queue.tryOffer command env.Requests |> ignore)
+        Cmd.ofEffect (fun _ -> Queue.tryOffer command runtime.Env.Requests |> ignore)
 
-    let private saveSettings env settings =
-        Settings.save settings |> FlowCmd.fireAndForget env
+    let private saveSettings (runtime: Runtime) settings =
+        Settings.save settings
+        |> Flow.recover (fun _ -> Flow.succeed ())
+        |> Cmd.OfFlow.start "save-settings" runtime.Elmish
 
-    let init (env: AppEnv) (folder: string) () : Model * Cmd<Msg> =
+    let init (runtime: Runtime) (folder: string) () : Model * Cmd<Msg> =
         let model =
             { Folder = folder
               Filter = ""
@@ -44,25 +47,20 @@ module App =
               Status = Loading
               Settings = Settings.defaults }
 
-        let model, listCmd = request env model
-
-        let loadSettings =
-            Settings.load
-            |> FlowCmd.attempt env.Post env (fun (never: Never) -> Never.absurd never) (fun result ->
-                SettingsLoaded(Result.defaultValue Settings.defaults result))
-
+        let model, listCmd = request runtime model
+        let loadSettings = Cmd.OfFlow.perform "load-settings" runtime.Elmish Settings.load SettingsLoaded
         model, Cmd.batch [ listCmd; loadSettings ]
 
-    let update (env: AppEnv) (msg: Msg) (model: Model) : Model * Cmd<Msg> =
+    let update (runtime: Runtime) (msg: Msg) (model: Model) : Model * Cmd<Msg> =
         match msg with
         | SettingsLoaded settings -> { model with Settings = settings }, Cmd.none
 
         | FilterChanged filter ->
             let settings = { model.Settings with LastFilter = filter }
-            let model, cmd = request env { model with Filter = filter; Settings = settings }
-            model, Cmd.batch [ cmd; saveSettings env settings ]
+            let model, cmd = request runtime { model with Filter = filter; Settings = settings }
+            model, Cmd.batch [ cmd; saveSettings runtime settings ]
 
-        | Refresh -> request env model
+        | Refresh -> request runtime model
 
         | ListingReceived(Listed(id, entries)) when id = model.RequestId -> { model with Entries = entries; Status = Ready }, Cmd.none
         | ListingReceived(ListingFailed(id, message)) when id = model.RequestId -> { model with Entries = []; Status = Failed message }, Cmd.none
@@ -70,15 +68,21 @@ module App =
 
         | ToggleTheme ->
             let settings = { model.Settings with DarkTheme = not model.Settings.DarkTheme }
-            { model with Settings = settings }, saveSettings env settings
+            { model with Settings = settings }, saveSettings runtime settings
 
-    /// Listings arrive from the runtime's hub as an Elmish subscription, posted to the Elmish thread.
-    let subscriptions (env: AppEnv) (_: Model) : Sub<Msg> =
-        [ [ "listings" ], fun dispatch -> Runtime.follow env (FlowStream.fromHub QueueStrategy.Unbounded env.Listings) (ListingReceived >> dispatch) ]
+    /// Listings arrive from the runtime's hub as an Elmish subscription. Axial.ElmishFlows posts every
+    /// message to the Elmish thread and interrupts the stream when the subscription is disposed.
+    let subscriptions (runtime: Runtime) (_: Model) : Sub<Msg> =
+        let stream =
+            runtime.Env.Listings
+            |> FlowStream.fromHub QueueStrategy.Unbounded
+            |> FlowStream.map ListingReceived
 
-    let program (env: AppEnv) (folder: string) =
-        Program.mkProgram (init env folder) (update env) (fun _ _ -> ())
-        |> Program.withSubscription (subscriptions env)
+        Sub.OfFlowStream.subscribe [ "listings" ] runtime.Elmish stream (fun never -> Never.absurd never)
+
+    let program (runtime: Runtime) (folder: string) =
+        Program.mkProgram (init runtime folder) (update runtime) (fun _ _ -> ())
+        |> Program.withSubscription (subscriptions runtime)
 
     let statusText (model: Model) =
         let visible = model.Entries.Length

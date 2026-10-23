@@ -1,97 +1,78 @@
 namespace MyApp
 
 open System
-open System.Threading
 open System.Threading.Tasks
 open Axial
+open Axial.ElmishFlows
+open Axial.Layers
 
-/// The running Axial application behind the UI. Its root scope owns the long-lived services: the request
-/// queue, the listing hub and the pipeline between them. Disposing it stops the pipeline and closes the scope.
+/// The running Axial application behind the UI. Axial.ElmishFlows owns its root scope and delivers every
+/// command and subscription result through the host's Post function.
 [<Sealed>]
-type Runtime internal (env: AppEnv, handle: AppHandle<Never, unit>) =
-    member _.Env = env
+type Runtime internal (inner: ElmishRuntime<AppEnv>) =
+    member _.Env = inner.Environment
+    member internal _.Elmish = inner
+    member _.Stop() = inner.Stop()
 
-    interface IDisposable with
-        member _.Dispose() =
-            // Stop on the thread pool: disposal usually happens on the UI thread, whose synchronization
-            // context would otherwise receive Stop's continuation while blocked waiting for it.
-            // IDisposable.Dispose is synchronous; this is the host boundary.
-            // axial-allow-effect: blocking
-            Task.Run<unit>(fun () -> Async.StartAsTask(handle.Stop() |> Async.Ignore)).Wait(TimeSpan.FromSeconds 5.0)
-            |> ignore
+    interface IAsyncDisposable with
+        member _.DisposeAsync() = ValueTask(inner.Stop() |> Async.StartAsTask)
 
 module Runtime =
     let debounce = TimeSpan.FromMilliseconds 150.0
 
-    let private answer (request: ListRequest) : Flow<AppEnv, Never, unit> =
-        flow {
-            let! listings = Flow.envWith _.Listings
-
-            let! event =
-                Folder.list request.Folder
-                |> Flow.map (fun entries -> Listed(request.Id, entries |> List.filter (Folder.matches request.Filter)))
-                |> Flow.recover (fun error -> Flow.succeed (ListingFailed(request.Id, string error)))
-
-            do! Hub.publish event listings |> Flow.ignore
-        }
+    let answer (request: ListRequest) : Flow<'env, Never, ListingEvent> when 'env :> Axial.FileSystem.IHasFileSystem =
+        Folder.list request.Folder
+        |> Flow.map (fun entries -> Listed(request.Id, entries |> List.filter (Folder.matches request.Filter)))
+        |> Flow.recover (fun error -> Flow.succeed (ListingFailed(request.Id, string error)))
 
     /// Waits for requests to settle, then answers only the newest. A newer request interrupts an older one.
     let pipeline: Flow<AppEnv, Never, unit> =
         flow {
             let! requests = Flow.envWith _.Requests
+            let! listings = Flow.envWith _.Listings
 
             return!
                 requests
                 |> FlowStream.fromDequeue
                 |> FlowStream.debounce debounce
                 |> FlowStream.switchMapFlow answer
+                |> FlowStream.mapFlow (fun event -> Hub.publish event listings |> Flow.ignore)
                 |> FlowStream.runDrain
         }
 
-    /// Starts the application root and returns once its services exist.
-    let start (platform: PlatformEnv) (post: (unit -> unit) -> unit) : Runtime =
-        let ready = TaskCompletionSource<AppEnv>(TaskCreationOptions.RunContinuationsAsynchronously)
+    let private layer : Layer<PlatformEnv, Never, AppEnv> =
+        Layer.fromFlow (flow {
+            let! (requests: Queue<ListRequest>) = Queue.sliding 1
+            let! (listings: Hub<ListingEvent>) = Hub.make ()
+            let! platform = Flow.env
 
-        let root: Flow<PlatformEnv, Never, unit> =
-            flow {
-                let! (requests: Queue<ListRequest>) = Queue.sliding 1
-                let! (listings: Hub<ListingEvent>) = Hub.make ()
+            return
+                { FileSystem = platform.FileSystem
+                  Clock = platform.Clock
+                  EnvironmentVariables = platform.EnvironmentVariables
+                  Requests = requests
+                  Listings = listings }
+        })
 
-                let env =
-                    { FileSystem = platform.FileSystem
-                      Clock = platform.Clock
-                      EnvironmentVariables = platform.EnvironmentVariables
-                      Requests = requests
-                      Listings = listings
-                      Post = post }
+    /// Provisions the scoped services without blocking the host, then starts the long-lived pipeline.
+    let start (platform: PlatformEnv) (post: (unit -> unit) -> unit) : Async<Runtime> =
+        async {
+            let options =
+                { Post = post
+                  OnDefect = (fun defect -> post (fun () -> raise (InvalidOperationException defect.Rendered)))
+                  HistoryCapacity = 32 }
 
-                do! Flow.delay (fun () -> ready.SetResult env; Flow.succeed ())
-                return! pipeline |> Flow.localEnv (fun _ -> env)
-            }
+            let! started = ElmishRuntime.startLayer options layer platform
 
-        let handle = App.start platform root
+            let elmishRuntime =
+                match started with
+                | Ok runtime -> runtime
+                | Error never -> Never.absurd never
 
-        // The UI needs the services before its first frame; startup is the host boundary.
+            for startPipeline in Cmd.OfFlow.start "listing-pipeline" elmishRuntime pipeline do
+                startPipeline ignore
 
-        // axial-allow-effect: blocking
-        if not (ready.Task.Wait(TimeSpan.FromSeconds 10.0)) then
-            invalidOp "The runtime did not start."
-
-        // Already completed by the Wait above.
-
-        // axial-allow-effect: blocking
-        new Runtime(ready.Task.Result, handle)
+            return Runtime elmishRuntime
+        }
 
     let live post = start (PlatformEnv.live ()) post
-
-    /// Runs a stream against the env and delivers each value through `Post`, until disposed.
-    /// This is how Elmish subscriptions follow Axial streams.
-    let follow (env: AppEnv) (stream: FlowStream<AppEnv, 'error, 'value>) (deliver: 'value -> unit) : IDisposable =
-        let stop = new CancellationTokenSource()
-        let work = stream |> FlowStream.runForEach (fun value -> env.Post(fun () -> deliver value))
-        work.StartAsTask(env, stop.Token) |> ignore
-
-        { new IDisposable with
-            member _.Dispose() =
-                stop.Cancel()
-                stop.Dispose() }

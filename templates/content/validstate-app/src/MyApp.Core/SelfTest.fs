@@ -13,7 +13,7 @@ module SelfTest =
 
     let private check name passed detail = { Name = name; Passed = passed; Detail = detail }
 
-    let private checks (root: string) : Flow<AppEnv, string, Check list> =
+    let private checks (root: string) : Flow<PlatformEnv, string, Check list> =
         flow {
             let! entries = Folder.list root |> Flow.mapError string
             let filtered = entries |> List.filter (Folder.matches "NOTE")
@@ -21,11 +21,8 @@ module SelfTest =
             let settings = { Settings.defaults with DarkTheme = false; LastFilter = "notes" }
             let roundTrip = Settings.parse (Settings.serialize settings)
 
-            // The pipeline: subscribe first, then ask, then wait for the answer.
-            let! env = Flow.env
-            let! listings = Hub.subscribe QueueStrategy.Unbounded env.Listings
-            Queue.tryOffer { Id = 1; Folder = root; Filter = "readme" } env.Requests |> ignore
-            let! event = Dequeue.take listings
+            // Run the same request handler used by the debounced runtime pipeline.
+            let! event = Runtime.answer { Id = 1; Folder = root; Filter = "readme" } |> Flow.widenError
 
             let piped =
                 match event with
@@ -40,7 +37,7 @@ module SelfTest =
         }
         |> Flow.scoped
 
-    let run (env: AppEnv) : Flow<AppEnv, string, Check list> =
+    let run (env: PlatformEnv) : Flow<PlatformEnv, string, Check list> =
         flow {
             let root = Path.Combine(env.FileSystem.GetTempPath(), "myapp-self-test-" + env.FileSystem.GetRandomFileName())
 

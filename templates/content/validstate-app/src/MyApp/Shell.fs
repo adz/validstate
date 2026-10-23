@@ -25,7 +25,7 @@ module Shell =
             if Dispatcher.UIThread.CheckAccess() then action.Invoke()
             else Dispatcher.UIThread.Post(fun () -> action.Invoke()))
 
-    let create (env: AppEnv) (folder: string) : MainWindow * ElmishHostConnection<Msg> =
+    let create (runtime: Runtime) (folder: string) : MainWindow * ElmishHostConnection<Msg> =
         let vm = MainVm()
         let window = MainWindow()
         window.Attach vm
@@ -33,7 +33,7 @@ module Shell =
         let connection =
             ElmishHost.startAndBindWithPost
                 postToUi
-                (App.program env folder)
+                (App.program runtime folder)
                 (Action<Model>(vm.Update))
                 (Action<Action<Msg>>(fun dispatch -> (vm :> IDispatchTarget<Msg>).SetDispatch dispatch))
 

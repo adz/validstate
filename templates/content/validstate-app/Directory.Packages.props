@@ -9,6 +9,7 @@
     <PackageVersion Include="Axial.FileSystem" Version="0.11.3" />
     <PackageVersion Include="Axial.PlatformService" Version="0.11.3" />
     <PackageVersion Include="Axial.Guardrails" Version="0.11.3" />
+    <PackageVersion Include="Axial.ElmishFlows" Version="0.11.3" />
     <PackageVersion Include="Reified.Schema" Version="0.11.2" />
     <PackageVersion Include="Elmish" Version="5.0.2" />
     <PackageVersion Include="Elmish.Avalonia.Glue" Version="0.2.1" />

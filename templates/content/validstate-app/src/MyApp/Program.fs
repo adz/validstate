@@ -18,9 +18,9 @@ let private selfTest () =
     // A Windows GUI executable has no console of its own; borrow the parent's so a CI shell sees the report.
     if OperatingSystem.IsWindows() then Native.AttachConsole -1 |> ignore
 
-    use runtime = Runtime.live (fun callback -> callback ())
+    let platform = PlatformEnv.live ()
 
-    match Flow.run runtime.Env (SelfTest.run runtime.Env) with
+    match Flow.run platform (SelfTest.run platform) with
     | Exit.Success results ->
         printfn "%s" (SelfTest.render results)
         if results |> List.forall _.Passed then 0 else 1

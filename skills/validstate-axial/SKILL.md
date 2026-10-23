@@ -78,34 +78,27 @@ let load<'env when 'env :> IHasEnvironmentVariables and 'env :> IHasFileSystem> 
 
 ### Elmish bridge
 
-Long-running streams become Elmish subscriptions: start the stream against the env with a cancellation token and post each value back.
+Use `Axial.ElmishFlows` rather than hand-written tasks and cancellation. Create one `ElmishRuntime` per program with a `Post` function for the UI thread. Its commands run in the runtime's root scope and post results before dispatching:
 
 ```fsharp
-let follow env (stream: FlowStream<AppEnv, 'e, 'v>) (deliver: 'v -> unit) : IDisposable =
-    let stop = new CancellationTokenSource()
-    (stream |> FlowStream.runForEach (fun v -> env.Post(fun () -> deliver v))).StartAsTask(env, stop.Token) |> ignore
-    { new IDisposable with member _.Dispose() = stop.Cancel() }
+open Axial.ElmishFlows
 
-let subscriptions env model : Sub<Msg> =
-    [ [ "search-events" ], fun dispatch -> follow env (FlowStream.fromHub QueueStrategy.Unbounded env.SearchEvents) (SearchEventReceived >> dispatch) ]
+let loadCmd runtime =
+    Cmd.OfFlow.either "load" runtime loadData DataLoaded LoadFailed
+
+let saveCmd runtime data =
+    Cmd.OfFlow.attempt "save" runtime (saveData data) SaveFailed
 ```
 
-One-shot commands use `Flow.toAsync`:
+Long-running streams are subscriptions. Elmish disposal interrupts the stream without blocking its dispatch thread:
 
 ```fsharp
-let attempt post env render toMsg (work: Flow<'env, 'error, 'value>) : Cmd<'msg> =
-    Cmd.ofEffect (fun dispatch ->
-        async {
-            let! exit = Flow.toAsync env work
-            let result =
-                match exit with
-                | Exit.Success value -> Ok value
-                | Exit.Failure cause -> Error(Cause.prettyPrint render cause)
-            post (fun () -> dispatch (toMsg result))
-        } |> Async.Start)
+let subscriptions runtime model : Sub<Msg> =
+    let stream = events |> FlowStream.map EventReceived
+    Sub.OfFlowStream.subscribe [ "events" ] runtime stream (fun error -> StreamFailed(error.ToString()))
 ```
 
-Post results back to the thread that owns the Elmish loop. Elmish dispatch is not designed for concurrent callers.
+For latest-wins commands use `Cmd.OfFlow.Latest.either`; for a `Flow<_, Never, unit>` that dispatches nothing use `Cmd.OfFlow.start`. Always handle a typed failure before `start`. Post results back to the thread that owns the Elmish loop; Elmish dispatch is not designed for concurrent callers.
 
 For a debounce, sleep through the clock service instead of `Task.Delay` (AXG001): `Flow.sleep (TimeSpan.FromMilliseconds 220.0)` and then dispatch a message that carries a generation number, so stale timers are ignored.
 
@@ -140,27 +133,32 @@ Useful operators: `debounce` + `switchMapFlow` for search-as-you-type (a newer v
 
 ## Host long-lived services in an application root
 
-`Cache`, `Queue`, `Hub` and `Hub.subscribe` belong to the scope they were made in. A `Flow.run` per command closes its scope when it returns, so services made there die with it. Make them once in an `App.start` root and keep the root running:
+`Cache`, `Queue`, `Hub` and `Hub.subscribe` belong to the scope they were made in. A `Flow.run` per command closes its scope when it returns, so services made there die with it. In an Elmish app, provision them with a `Layer` inside `ElmishRuntime.startLayer`; it asynchronously returns only after the environment exists and keeps every resource alive until runtime shutdown:
 
 ```fsharp
-let start (platform: PlatformEnv) : Runtime =
-    let ready = TaskCompletionSource<AppEnv>(TaskCreationOptions.RunContinuationsAsynchronously)
-    let root =
-        flow {
-            let! files = Files.make                     // makes its Cache here, in the root scope
-            let! commands = Queue.sliding 1             // only the newest request matters
-            let! events = Hub.make ()
-            let env = { ... Files = files; SearchCommands = commands; SearchEvents = events }
-            do! Flow.delay (fun () -> ready.SetResult env; Flow.succeed ())
-            return! searchPipeline |> Flow.localEnv (fun _ -> env)   // runs until the root stops
-        }
-    let handle = App.start platform root
-    new Runtime(ready.Task.Result, handle)
+let appLayer : Layer<PlatformEnv, Never, AppEnv> =
+    Layer.fromFlow (flow {
+        let! files = Files.make
+        let! commands = Queue.sliding 1
+        let! events = Hub.make ()
+        let! platform = Flow.env
+        return { ... Files = files; SearchCommands = commands; SearchEvents = events }
+    })
+
+let start platform post =
+    ElmishRuntime.startLayer
+        { Post = post
+          OnDefect = fun defect -> post (fun () -> raise (InvalidOperationException defect.Rendered))
+          HistoryCapacity = 32 }
+        appLayer
+        platform
 ```
 
-- Commands from UI code go in with the synchronous `Queue.tryOffer`. Results go out through a `Hub`; consumers follow it with `FlowStream.fromHub`.
+Await startup before constructing the Elmish program or showing its first frame. On shutdown, let the host await `runtime.Stop()` while its event loop remains free; do not synchronously wait on the UI thread. `StopAndWait` and `IDisposable` are for non-UI boundaries.
+
+- Commands from UI code go in with the synchronous `Queue.tryOffer`. Results go out through a `Hub`; consumers subscribe with `Sub.OfFlowStream.subscribe`.
 - `Cache.make` needs `'env :> IHasClock`. A cache whose lookup needs the cache itself (nested archives) can hold it in a `ref` set right after `Cache.make`. `Cache` has no expiry or size cap; keep a small LRU of keys and `Cache.invalidate` the oldest.
-- **Stop the root off the UI thread.** `Async.RunSynchronously(handle.Stop(), timeout)` called on the UI thread deadlocks, because Stop's continuation is posted to the UI thread's synchronization context, and the timeout does not fire. Use `Task.Run<unit>(fun () -> Async.StartAsTask(handle.Stop() |> Async.Ignore)).Wait(TimeSpan.FromSeconds 5.0)`.
+- Outside Elmish, `App.startWith platform build` is the corresponding asynchronous way to publish built services while keeping their scope open.
 
 ## Designing an Axial service
 
@@ -197,7 +195,7 @@ Interface members take `unit` as their environment because the live implementati
 | AXG007 | `Flow.fork` (or another fork) of a flow that acquires a scoped resource and returns it, so the fiber releases it on exit | Acquire it with `Flow.forkResource`, or with `Flow.zipPar`/`sequencePar` so it moves to the caller's scope. |
 | AXG008 | Returning a scope-owned service (`Queue.makeScoped`, `Hub.makeScoped`, `Hub.subscribe`, `Cache.make*`) from `Flow.run`/`RunSynchronously`/`StartAsTask`, whose scope closes on return | Use the service inside the flow, or keep its owning scope open (an `App` root or a `Layer`). |
 
-**Never add an `// axial-allow-*` directive to silence an error.** Move the effect into a service on the env and call it through the env. An allow directive is only for a genuine host boundary that a person has reviewed, never a way to make a build pass.
+**Never add an `// axial-allow-*` directive to silence an error.** Move the effect into a service on the env and call it through the env. At a host boundary, prefer the host's asynchronous startup and shutdown hooks rather than suppressing a blocking effect.
 
 `TimeZoneInfo.Local` and `System.IO.Path` are not flagged. `IFileSystem` members (`fs.DirectoryExists`, `fs.GetCurrentDirectory()`) are the sanctioned way to do synchronous checks at a boundary.
 

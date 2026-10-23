@@ -8,7 +8,6 @@
     <Compile Include="Settings.fs" />
     <Compile Include="Env.fs" />
     <Compile Include="Runtime.fs" />
-    <Compile Include="FlowCmd.fs" />
     <Compile Include="App.fs" />
     <Compile Include="SelfTest.fs" />
   </ItemGroup>
@@ -16,6 +15,7 @@
     <PackageReference Include="Axial" />
     <PackageReference Include="Axial.FileSystem" />
     <PackageReference Include="Axial.PlatformService" />
+    <PackageReference Include="Axial.ElmishFlows" />
     <PackageReference Include="Reified.Schema" />
     <PackageReference Include="Elmish" />
   </ItemGroup>

@@ -42,10 +42,7 @@ type AppEnv =
       Clock: IClock
       EnvironmentVariables: IEnvironmentVariables
       Requests: Queue<ListRequest>
-      Listings: Hub<ListingEvent>
-      /// Delivers a callback to the thread that owns the Elmish loop. Elmish's dispatch is single-threaded,
-      /// so every background result must arrive through this before it is dispatched.
-      Post: (unit -> unit) -> unit }
+      Listings: Hub<ListingEvent> }
 
     interface IHasFileSystem with
         member this.FileSystem = this.FileSystem

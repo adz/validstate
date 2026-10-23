@@ -5,7 +5,7 @@ open Axial
 open MyApp
 
 /// A fresh runtime for one test. Results are delivered inline, since tests have no UI thread.
-let runtime () = Runtime.start (PlatformEnv.live ()) (fun callback -> callback ())
+let runtime () = Runtime.start (PlatformEnv.live ()) (fun callback -> callback ()) |> Async.StartAsTask
 
 let runIn (runtime: Runtime) (flow: Flow<AppEnv, 'error, 'value>) : 'value =
     match Flow.run runtime.Env flow with

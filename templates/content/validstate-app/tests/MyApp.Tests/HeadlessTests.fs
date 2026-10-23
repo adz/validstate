@@ -37,12 +37,25 @@ let private scenario () =
 
     let settingsFolder = Directory.CreateTempSubdirectory "myapp-settings"
 
-    use runtime =
+    let mutable startup: Result<Runtime, exn> option = None
+
+    Async.StartWithContinuations(
         Runtime.start
             { PlatformEnv.live () with EnvironmentVariables = EnvironmentVariables.fromPairs [ "APPDATA", settingsFolder.FullName ] }
-            Shell.postToDispatcher
+            Shell.postToDispatcher,
+        (Ok >> Some >> fun result -> startup <- result),
+        (Error >> Some >> fun result -> startup <- result),
+        (fun cancelled -> startup <- Some(Error cancelled)))
 
-    let window, connection = Shell.create runtime.Env (scratchFolder ())
+    pumpUntil "the runtime to start" (fun () -> Option.isSome startup)
+
+    let runtime =
+        match startup with
+        | Some(Ok runtime) -> runtime
+        | Some(Error error) -> raise (Exception("Runtime startup failed", error))
+        | None -> failwith "Runtime startup did not complete"
+
+    let window, connection = Shell.create runtime (scratchFolder ())
     let vm = window.DataContext :?> MainVm
     window.Show()
 
@@ -62,6 +75,18 @@ let private scenario () =
 
     (connection :> IDisposable).Dispose()
     window.Close()
+
+    let mutable stopped = false
+    let mutable stopError: exn option = None
+
+    Async.StartWithContinuations(
+        runtime.Stop(),
+        (fun () -> stopped <- true),
+        (fun error -> stopError <- Some error; stopped <- true),
+        (fun cancelled -> stopError <- Some cancelled; stopped <- true))
+
+    pumpUntil "the runtime to stop" (fun () -> stopped)
+    stopError |> Option.iter (fun error -> raise (Exception("Runtime shutdown failed", error)))
 
 [<Fact>]
 let ``the window lists a folder and filters it as you type`` () =
