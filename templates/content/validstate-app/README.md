@@ -12,7 +12,7 @@ It starts as a small working example: a window that lists the current folder, wi
 
 | Path | What it holds |
 | --- | --- |
-| `src/MyApp.Core` | Everything testable without a window. `Folder.fs` lists through Axial's file service. `Settings.fs` is the Reified schema. `Runtime.fs` is the Axial root that owns long-lived services (a request queue, a result hub, and the debounced latest-wins pipeline between them). `App.fs` is the Elmish model, messages, update and subscriptions. `SelfTest.fs` holds the NativeAOT checks. |
+| `src/MyApp.Core` | Everything testable without a window. `Folder.fs` lists through Axial's file service. `Settings.fs` is the Reified schema. `Runtime.fs` is the Axial root that owns the request queue and defines the debounced latest-wins listing stream. `App.fs` is the Elmish model, messages, update and the program-lifetime stream subscription. `SelfTest.fs` holds the NativeAOT checks. |
 | `src/MyApp` | The Avalonia app. `ViewModels.fs` holds the F# viewmodels, `Shell.fs` connects Elmish to the window, and `Views/` holds the AXAML. |
 | `tests/MyApp.Tests` | Behaviour and real-I/O tests, plus a headless scenario that types into the real window. |
 | `.github/workflows` | CI on every push and pull request. A `vX.Y.Z` tag builds NativeAOT releases for Windows, Linux and macOS. |

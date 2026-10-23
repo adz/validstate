@@ -50,20 +50,15 @@ let ``the pipeline answers only the newest of two quick requests`` () =
         let env = runtime.Env
         let folder = scratchFolder ()
 
-        let answer =
-            flow {
-                let! listings = Hub.subscribe QueueStrategy.Unbounded env.Listings
-                Queue.tryOffer { Id = 1; Folder = folder; Filter = "notes" } env.Requests |> ignore
-                Queue.tryOffer { Id = 2; Folder = folder; Filter = "readme" } env.Requests |> ignore
-                return! Dequeue.take listings
-            }
-            |> Flow.scoped
+        Queue.tryOffer { Id = 1; Folder = folder; Filter = "notes" } env.Requests |> ignore
+        Queue.tryOffer { Id = 2; Folder = folder; Filter = "readme" } env.Requests |> ignore
 
-        match runIn runtime answer with
-        | Listed(id, entries) ->
+        match Runtime.listings env.Requests |> FlowStream.runTryHead |> runIn runtime with
+        | Some(Listed(id, entries)) ->
             Assert.Equal(2, id)
             Assert.Equal<string list>([ "README.md" ], entries |> List.map _.Name)
-        | ListingFailed(_, message) -> failwith message
+        | Some(ListingFailed(_, message)) -> failwith message
+        | None -> failwith "the listing stream ended without an answer"
     }
 
 [<Fact>]

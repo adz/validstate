@@ -70,14 +70,10 @@ module App =
             let settings = { model.Settings with DarkTheme = not model.Settings.DarkTheme }
             { model with Settings = settings }, saveSettings runtime settings
 
-    /// Listings arrive from the runtime's hub as an Elmish subscription. Axial.ElmishFlows posts every
-    /// message to the Elmish thread and interrupts the stream when the subscription is disposed.
+    /// The program-lifetime listing pipeline is an Elmish subscription. Disposal interrupts the stream and
+    /// Axial.ElmishFlows posts every result to the Elmish thread.
     let subscriptions (runtime: Runtime) (_: Model) : Sub<Msg> =
-        let stream =
-            runtime.Env.Listings
-            |> FlowStream.fromHub QueueStrategy.Unbounded
-            |> FlowStream.map ListingReceived
-
+        let stream = Runtime.listings runtime.Env.Requests |> FlowStream.map ListingReceived
         Sub.OfFlowStream.subscribe [ "listings" ] runtime.Elmish stream (fun never -> Never.absurd never)
 
     let program (runtime: Runtime) (folder: string) =

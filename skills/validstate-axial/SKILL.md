@@ -30,8 +30,7 @@ type AppEnv =
     { FileSystem: IFileSystem
       Clock: IClock
       EnvironmentVariables: IEnvironmentVariables
-      Files: IFiles                     // your own services sit beside Axial's
-      Post: (unit -> unit) -> unit }    // UI-thread delivery for Elmish results
+      Files: IFiles }                   // your own services sit beside Axial's
     interface IHasFileSystem with member this.FileSystem = this.FileSystem
     interface IHasClock with member this.Clock = this.Clock
     interface IHasEnvironmentVariables with member this.EnvironmentVariables = this.EnvironmentVariables
@@ -40,7 +39,7 @@ type AppEnv =
 
 Services that own state (caches, queues, hubs) are built by a flow inside a long-lived scope; see "Host long-lived services" below.
 
-Define your own `IHasX` interface for each app service, so library-style code can ask for `'env when 'env :> IHasFileSystem and 'env :> IHasArchives` rather than the concrete record. The live record is the only place that names implementations. Tests use the same record with `{ AppEnv.live () with EnvironmentVariables = EnvironmentVariables.fromPairs [ "APPDATA", temp ] }`.
+Define your own `IHasX` interface for each app service, so library-style code can ask for `'env when 'env :> IHasFileSystem and 'env :> IHasArchives` rather than the concrete record. `PlatformEnv.live` is the only place that names platform implementations; an application `Layer` builds `AppEnv` from it. Tests override the platform record before starting the same layer: `{ PlatformEnv.live () with EnvironmentVariables = EnvironmentVariables.fromPairs [ "APPDATA", temp ] }`.
 
 ## Write flows
 
@@ -72,7 +71,7 @@ let load<'env when 'env :> IHasEnvironmentVariables and 'env :> IHasFileSystem> 
 ## Run flows at the boundary
 
 - `Flow.run env flow` blocks and returns `Exit<'value, 'error>` (tests, scripts).
-- `Flow.toAsync env flow` is cold; use it for Elmish commands.
+- `Flow.toAsync env flow` is cold; use it at non-Elmish asynchronous boundaries. Elmish commands use `Cmd.OfFlow` below.
 - `flow.StartAsTask(env, cancellationToken)` starts now with a token you control. Use it for cancellable work such as a search that a newer search replaces.
 - Render failures with `Cause.prettyPrint (fun e -> e.ToString()) cause`.
 
@@ -98,7 +97,7 @@ let subscriptions runtime model : Sub<Msg> =
     Sub.OfFlowStream.subscribe [ "events" ] runtime stream (fun error -> StreamFailed(error.ToString()))
 ```
 
-For latest-wins commands use `Cmd.OfFlow.Latest.either`; for a `Flow<_, Never, unit>` that dispatches nothing use `Cmd.OfFlow.start`. Always handle a typed failure before `start`. Post results back to the thread that owns the Elmish loop; Elmish dispatch is not designed for concurrent callers.
+For latest-wins commands use `Cmd.OfFlow.Latest.either`; for a finite `Flow<_, Never, unit>` that dispatches nothing use `Cmd.OfFlow.start`. Always handle a typed failure before `start`. A program-lifetime stream is a `Sub.OfFlowStream` subscription, not a never-completing command. Supply the UI `Post` function in `ElmishRuntimeOptions`; do not put it in `AppEnv`. Elmish dispatch is not designed for concurrent callers.
 
 For a debounce, sleep through the clock service instead of `Task.Delay` (AXG001): `Flow.sleep (TimeSpan.FromMilliseconds 220.0)` and then dispatch a message that carries a generation number, so stale timers are ignored.
 
@@ -140,9 +139,8 @@ let appLayer : Layer<PlatformEnv, Never, AppEnv> =
     Layer.fromFlow (flow {
         let! files = Files.make
         let! commands = Queue.sliding 1
-        let! events = Hub.make ()
         let! platform = Flow.env
-        return { ... Files = files; SearchCommands = commands; SearchEvents = events }
+        return { ... Files = files; SearchCommands = commands }
     })
 
 let start platform post =
@@ -156,7 +154,7 @@ let start platform post =
 
 Await startup before constructing the Elmish program or showing its first frame. On shutdown, let the host await `runtime.Stop()` while its event loop remains free; do not synchronously wait on the UI thread. `StopAndWait` and `IDisposable` are for non-UI boundaries.
 
-- Commands from UI code go in with the synchronous `Queue.tryOffer`. Results go out through a `Hub`; consumers subscribe with `Sub.OfFlowStream.subscribe`.
+- Commands from UI code go in with synchronous `Queue.tryOffer`. Let `Sub.OfFlowStream.subscribe` own the program-lifetime stream that dequeues and produces result messages. Use a `Hub` when a separately provisioned service must publish to one or more subscriptions.
 - `Cache.make` needs `'env :> IHasClock`. A cache whose lookup needs the cache itself (nested archives) can hold it in a `ref` set right after `Cache.make`. `Cache` has no expiry or size cap; keep a small LRU of keys and `Cache.invalidate` the oldest.
 - Outside Elmish, `App.startWith platform build` is the corresponding asynchronous way to publish built services while keeping their scope open.
 

@@ -25,36 +25,26 @@ module Runtime =
         |> Flow.map (fun entries -> Listed(request.Id, entries |> List.filter (Folder.matches request.Filter)))
         |> Flow.recover (fun error -> Flow.succeed (ListingFailed(request.Id, string error)))
 
-    /// Waits for requests to settle, then answers only the newest. A newer request interrupts an older one.
-    let pipeline: Flow<AppEnv, Never, unit> =
-        flow {
-            let! requests = Flow.envWith _.Requests
-            let! listings = Flow.envWith _.Listings
-
-            return!
-                requests
-                |> FlowStream.fromDequeue
-                |> FlowStream.debounce debounce
-                |> FlowStream.switchMapFlow answer
-                |> FlowStream.mapFlow (fun event -> Hub.publish event listings |> Flow.ignore)
-                |> FlowStream.runDrain
-        }
+    /// Waits for requests to settle, then answers only the newest. Elmish owns this stream as a subscription.
+    let listings (requests: Queue<ListRequest>) : FlowStream<AppEnv, Never, ListingEvent> =
+        requests
+        |> FlowStream.fromDequeue
+        |> FlowStream.debounce debounce
+        |> FlowStream.switchMapFlow answer
 
     let private layer : Layer<PlatformEnv, Never, AppEnv> =
         Layer.fromFlow (flow {
             let! (requests: Queue<ListRequest>) = Queue.sliding 1
-            let! (listings: Hub<ListingEvent>) = Hub.make ()
             let! platform = Flow.env
 
             return
                 { FileSystem = platform.FileSystem
                   Clock = platform.Clock
                   EnvironmentVariables = platform.EnvironmentVariables
-                  Requests = requests
-                  Listings = listings }
+                  Requests = requests }
         })
 
-    /// Provisions the scoped services without blocking the host, then starts the long-lived pipeline.
+    /// Provisions the scoped request queue without blocking the host; Elmish starts the listing subscription.
     let start (platform: PlatformEnv) (post: (unit -> unit) -> unit) : Async<Runtime> =
         async {
             let options =
@@ -68,9 +58,6 @@ module Runtime =
                 match started with
                 | Ok runtime -> runtime
                 | Error never -> Never.absurd never
-
-            for startPipeline in Cmd.OfFlow.start "listing-pipeline" elmishRuntime pipeline do
-                startPipeline ignore
 
             return Runtime elmishRuntime
         }

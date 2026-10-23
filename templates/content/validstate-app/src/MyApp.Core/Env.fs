@@ -36,13 +36,12 @@ module PlatformEnv =
           Clock = Clock.live
           EnvironmentVariables = EnvironmentVariables.live }
 
-/// Everything the Elmish program's effects run against. The queue and hub live in the runtime's root scope.
+/// Everything the Elmish program's effects run against. The request queue lives in the runtime's root scope.
 type AppEnv =
     { FileSystem: IFileSystem
       Clock: IClock
       EnvironmentVariables: IEnvironmentVariables
-      Requests: Queue<ListRequest>
-      Listings: Hub<ListingEvent> }
+      Requests: Queue<ListRequest> }
 
     interface IHasFileSystem with
         member this.FileSystem = this.FileSystem
