@@ -4,6 +4,7 @@ open System
 open System.Diagnostics
 open System.Diagnostics.CodeAnalysis
 open System.Reflection
+open System.Threading.Tasks
 open Avalonia
 open Avalonia.Controls
 open Avalonia.Controls.ApplicationLifetimes
@@ -23,102 +24,214 @@ type private ShutdownKind =
     | Application
     | OperatingSystem
 
-module private ShutdownRequest =
-    // Avalonia 12.1 exposes this information to its lifetime implementation but not yet through its public API.
-    // Root the internal property so this narrow compatibility check remains available under NativeAOT trimming.
-    [<DynamicDependency(DynamicallyAccessedMemberTypes.NonPublicProperties, typeof<ShutdownRequestedEventArgs>)>]
-    let isOperatingSystem (args: ShutdownRequestedEventArgs) =
-        let property =
-            typeof<ShutdownRequestedEventArgs>.GetProperty(
-                "IsOSShutdown",
-                BindingFlags.Instance ||| BindingFlags.NonPublic)
+/// A startup operation retains ownership of a runtime until the UI accepts it. Cancelling the operation waits for
+/// provisioning and stops a runtime that arrives late, without depending on the UI dispatcher.
+type StartupOperation<'runtime>
+    (
+        completion: Async<Result<'runtime, exn>>,
+        cancel: unit -> Async<Result<unit, exn>>
+    ) =
+    member _.Completion = completion
+    member _.Cancel() = cancel ()
 
-        property.GetValue(args) :?> bool
+[<RequireQualifiedAccess>]
+module StartupOperation =
+    let create (start: Async<'runtime>) (stop: 'runtime -> Async<unit>) =
+        let gate = obj ()
+        let completion = TaskCompletionSource<Result<'runtime, exn>>(TaskCreationOptions.RunContinuationsAsynchronously)
+        let cancellation = TaskCompletionSource<Result<unit, exn>>(TaskCreationOptions.RunContinuationsAsynchronously)
+        let mutable result: Result<'runtime, exn> option = None
+        let mutable cancellationRequested = false
+        let mutable cleanupStarted = false
+
+        let startCleanup running =
+            let stopping = stop running |> Async.StartAsTask
+
+            stopping.ContinueWith(
+                (fun (completed: Task<unit>) ->
+                    try
+                        completed.GetAwaiter().GetResult()
+                        cancellation.TrySetResult(Ok ()) |> ignore
+                    with error ->
+                        cancellation.TrySetResult(Error error) |> ignore),
+                TaskScheduler.Default)
+            |> ignore
+
+        let observe completed =
+            let cleanup =
+                lock gate (fun () ->
+                    result <- Some completed
+                    completion.TrySetResult(completed) |> ignore
+
+                    if cancellationRequested && not cleanupStarted then
+                        cleanupStarted <- true
+                        Some completed
+                    else
+                        None)
+
+            match cleanup with
+            | Some(Ok running) -> startCleanup running
+            | Some(Error error) -> cancellation.TrySetResult(Error error) |> ignore
+            | None -> ()
+
+        let starting = start |> Async.StartAsTask
+
+        starting.ContinueWith(
+            (fun (completed: Task<'runtime>) ->
+                try observe (Ok(completed.GetAwaiter().GetResult()))
+                with error -> observe (Error error)),
+            TaskScheduler.Default)
+        |> ignore
+
+        let cancel () =
+            let cleanup =
+                lock gate (fun () ->
+                    cancellationRequested <- true
+
+                    if not cleanupStarted then
+                        match result with
+                        | Some completed ->
+                            cleanupStarted <- true
+                            Some completed
+                        | None -> None
+                    else
+                        None)
+
+            match cleanup with
+            | Some(Ok running) -> startCleanup running
+            | Some(Error error) -> cancellation.TrySetResult(Error error) |> ignore
+            | None -> ()
+
+            cancellation.Task |> Async.AwaitTask
+
+        StartupOperation(completion.Task |> Async.AwaitTask, cancel)
+
+module private ShutdownRequest =
+    // Avalonia 12.1 keeps this startup-phase signal internal. A running window uses its public CloseReason instead.
+    [<DynamicDependency(DynamicallyAccessedMemberTypes.PublicProperties ||| DynamicallyAccessedMemberTypes.NonPublicProperties, typeof<ShutdownRequestedEventArgs>)>]
+    let classify (args: ShutdownRequestedEventArgs) =
+        try
+            let property =
+                typeof<ShutdownRequestedEventArgs>.GetProperty(
+                    "IsOSShutdown",
+                    BindingFlags.Instance ||| BindingFlags.Public ||| BindingFlags.NonPublic)
+
+            if isNull property then
+                Error(MissingMemberException(typeof<ShutdownRequestedEventArgs>.FullName, "IsOSShutdown") :> exn)
+            else
+                match property.GetValue(args) with
+                | :? bool as isOsShutdown -> Ok isOsShutdown
+                | value ->
+                    let actual = if isNull value then "null" else value.GetType().FullName
+                    Error(InvalidCastException($"ShutdownRequestedEventArgs.IsOSShutdown returned {actual}, not Boolean.") :> exn)
+        with error ->
+            Error error
 
 /// Coordinates asynchronous runtime startup and shutdown around Avalonia's synchronous lifetime events.
-/// The generic runtime type keeps the state machine independently testable while the application uses `Runtime`.
 type DesktopLifecycle<'runtime>
     (
         desktop: IClassicDesktopStyleApplicationLifetime,
-        startRuntime: unit -> Async<'runtime>,
+        beginStartup: unit -> StartupOperation<'runtime>,
         stopRuntime: 'runtime -> Async<unit>,
         startUi: 'runtime -> Window * IDisposable,
         post: (unit -> unit) -> unit,
         reportError: exn -> unit,
         exit: int -> unit,
-        stopTimeout: TimeSpan
+        delay: TimeSpan -> Async<unit>,
+        stopTimeout: TimeSpan,
+        classifyShutdown: ShutdownRequestedEventArgs -> Result<bool, exn>
     ) =
 
     let mutable state = LifecycleState.Starting
+    let mutable startup: StartupOperation<'runtime> option = None
     let mutable runtime: 'runtime option = None
+    let mutable window: Window option = None
     let mutable connection: IDisposable option = None
     let mutable shutdownKind: ShutdownKind option = None
     let mutable stopStarted = false
-    let mutable startupShutdownTimerStarted = false
-    let mutable terminalFailure = false
+    let mutable classificationWarningReported = false
     let mutable shutdownError: exn option = None
 
     let report error =
         try reportError error
         with _ -> ()
 
+    let classify args =
+        try
+            match classifyShutdown args with
+            | Ok isOsShutdown -> isOsShutdown
+            | Error error ->
+                if not classificationWarningReported then
+                    classificationWarningReported <- true
+                    report error
+                false
+        with error ->
+            if not classificationWarningReported then
+                classificationWarningReported <- true
+                report error
+            false
+
     let finish exitCode nextState =
         state <- nextState
-        if nextState = LifecycleState.Failed then terminalFailure <- true
         exit exitCode
 
     let completeStop result =
-        if terminalFailure then
-            state <- LifecycleState.Failed
-            match result with
-            | Error error -> report error
-            | Ok () -> ()
-        else
-            match result, shutdownError with
-            | Ok (), None ->
-                state <- LifecycleState.Stopped
-                if shutdownKind <> Some ShutdownKind.OperatingSystem then exit 0
-            | Error error, _ ->
-                report error
-                finish 1 LifecycleState.Failed
-            | Ok (), Some error ->
-                report error
-                finish 1 LifecycleState.Failed
+        match result, shutdownError with
+        | Ok (), None ->
+            state <- LifecycleState.Stopped
+            if shutdownKind <> Some ShutdownKind.OperatingSystem then exit 0
+        | Error error, _ ->
+            report error
+            finish 1 LifecycleState.Failed
+        | Ok (), Some error ->
+            report error
+            finish 1 LifecycleState.Failed
 
-    let startStop () =
+    // The operation is started independently before racing its completion against the injected delay. Timing out
+    // therefore never cancels cleanup; it only bounds how long the host keeps its dispatcher alive.
+    let runBounded description operation =
+        let completed = TaskCompletionSource<Result<unit, exn>>(TaskCreationOptions.RunContinuationsAsynchronously)
+
+        let running = operation |> Async.StartAsTask
+
+        running.ContinueWith(
+            (fun (finished: Task<Result<unit, exn>>) ->
+                try completed.TrySetResult(finished.GetAwaiter().GetResult()) |> ignore
+                with error -> completed.TrySetResult(Error error) |> ignore),
+            TaskScheduler.Default)
+        |> ignore
+
+        async {
+            let! outcome =
+                Async.Choice
+                    [ async {
+                          let! result = completed.Task |> Async.AwaitTask
+                          return Some result
+                      }
+                      async {
+                          do! delay stopTimeout
+                          return Some(Error(TimeoutException(description + " exceeded its " + stopTimeout.TotalSeconds.ToString(Globalization.CultureInfo.InvariantCulture) + " second deadline.") :> exn))
+                      } ]
+
+            return outcome.Value
+        }
+
+    let startBoundedStop operation =
+        Async.StartWithContinuations(
+            runBounded "Runtime shutdown" operation,
+            (fun result -> post (fun () -> completeStop result)),
+            (fun error -> post (fun () -> completeStop (Error error))),
+            (fun cancelled -> post (fun () -> completeStop (Error cancelled))))
+
+    let startRuntimeStop () =
         match runtime with
         | Some running when not stopStarted ->
             stopStarted <- true
-
-            let boundedStop =
-                async {
-                    let milliseconds = max 1 (int stopTimeout.TotalMilliseconds)
-                    let! stopping = Async.StartChild(stopRuntime running, milliseconds)
-                    do! stopping
-                }
-
-            Async.StartWithContinuations(
-                boundedStop,
-                (fun () -> post (fun () -> completeStop (Ok ()))),
-                (fun error -> post (fun () -> completeStop (Error error))),
-                (fun cancelled -> post (fun () -> completeStop (Error cancelled))))
+            startBoundedStop (async {
+                do! stopRuntime running
+                return Ok ()
+            })
         | _ -> ()
-
-    let startStartupShutdownTimer () =
-        if not startupShutdownTimerStarted then
-            startupShutdownTimerStarted <- true
-            let milliseconds = max 1 (int stopTimeout.TotalMilliseconds)
-
-            Async.StartWithContinuations(
-                async { do! Async.Sleep milliseconds },
-                (fun () ->
-                    post (fun () ->
-                        if state = LifecycleState.Stopping && Option.isNone runtime then
-                            let error = TimeoutException("Runtime startup did not finish before shutdown timed out.")
-                            report error
-                            finish 1 LifecycleState.Failed)),
-                (fun error -> post (fun () -> report error; finish 1 LifecycleState.Failed)),
-                (fun cancelled -> post (fun () -> report cancelled; finish 1 LifecycleState.Failed)))
 
     let beginStop kind =
         shutdownKind <-
@@ -136,9 +249,25 @@ type DesktopLifecycle<'runtime>
             with error -> shutdownError <- Some error
         | None -> ()
 
-        match runtime, kind with
-        | None, ShutdownKind.Application -> startStartupShutdownTimer ()
-        | _ -> startStop ()
+        match runtime, startup with
+        | Some _, _ -> startRuntimeStop ()
+        | None, Some pending when not stopStarted ->
+            stopStarted <- true
+            startBoundedStop (pending.Cancel())
+        | _ -> ()
+
+    let windowClosing (args: WindowClosingEventArgs) =
+        if args.CloseReason = WindowCloseReason.OSShutdown then
+            beginStop ShutdownKind.OperatingSystem
+        else
+            match state with
+            | LifecycleState.Starting
+            | LifecycleState.Running ->
+                args.Cancel <- true
+                beginStop ShutdownKind.Application
+            | LifecycleState.Stopping -> args.Cancel <- true
+            | LifecycleState.Stopped
+            | LifecycleState.Failed -> ()
 
     let startupSucceeded running =
         runtime <- Some running
@@ -146,56 +275,101 @@ type DesktopLifecycle<'runtime>
         match state with
         | LifecycleState.Starting ->
             try
-                let window, active = startUi running
+                let createdWindow, active = startUi running
+                window <- Some createdWindow
                 connection <- Some active
-                desktop.MainWindow <- window
+                createdWindow.Closing.Add windowClosing
+                desktop.MainWindow <- createdWindow
                 desktop.ShutdownMode <- ShutdownMode.OnLastWindowClose
                 state <- LifecycleState.Running
-                window.Show()
+                createdWindow.Show()
             with error ->
                 shutdownError <- Some error
                 beginStop ShutdownKind.Application
-        | LifecycleState.Stopping -> startStop ()
-        | LifecycleState.Running -> ()
+        | LifecycleState.Stopping
         | LifecycleState.Stopped
-        | LifecycleState.Failed ->
-            // A late completion must not leave a newly-provisioned runtime alive.
-            shutdownKind <- Some ShutdownKind.Application
-            state <- LifecycleState.Stopping
-            startStop ()
+        | LifecycleState.Failed
+        | LifecycleState.Running ->
+            // StartupOperation owns cleanup after cancellation, including after the dispatcher exits.
+            ()
 
     let startupFailed error =
-        report error
-        finish 1 LifecycleState.Failed
-
-    let shutdownRequested (_: obj) (args: ShutdownRequestedEventArgs) =
-        let osShutdown = ShutdownRequest.isOperatingSystem args
-
         match state with
         | LifecycleState.Starting ->
-            if not osShutdown then args.Cancel <- true
-            beginStop (if osShutdown then ShutdownKind.OperatingSystem else ShutdownKind.Application)
-        | LifecycleState.Running ->
-            if not osShutdown then args.Cancel <- true
-            beginStop (if osShutdown then ShutdownKind.OperatingSystem else ShutdownKind.Application)
-        | LifecycleState.Stopping ->
-            // Never block an OS session end. Other repeated requests wait for the bounded Stop to finish.
-            if osShutdown then beginStop ShutdownKind.OperatingSystem
-            else args.Cancel <- true
+            report error
+            finish 1 LifecycleState.Failed
+        | LifecycleState.Stopping
         | LifecycleState.Stopped
-        | LifecycleState.Failed -> ()
+        | LifecycleState.Failed
+        | LifecycleState.Running -> ()
+
+    let shutdownRequested (_: obj) (args: ShutdownRequestedEventArgs) =
+        try
+            match state, window with
+            | LifecycleState.Starting, _
+            | LifecycleState.Stopping, None ->
+                if classify args then beginStop ShutdownKind.OperatingSystem
+                else
+                    args.Cancel <- true
+                    beginStop ShutdownKind.Application
+            | LifecycleState.Running, Some _
+            | LifecycleState.Stopping, Some _ ->
+                // Avalonia now proceeds to Window.Closing, whose public CloseReason distinguishes OS shutdown.
+                ()
+            | LifecycleState.Stopped, _
+            | LifecycleState.Failed, _
+            | LifecycleState.Running, None -> ()
+        with error ->
+            // A host callback must never escape into Avalonia's synchronous shutdown dispatch.
+            args.Cancel <- true
+            report error
+            beginStop ShutdownKind.Application
 
     member _.State = state
+    member _.Runtime = runtime
 
     member _.Start() =
         desktop.ShutdownMode <- ShutdownMode.OnExplicitShutdown
         desktop.ShutdownRequested.AddHandler(EventHandler<ShutdownRequestedEventArgs>(shutdownRequested))
 
+        let pending = beginStartup ()
+        startup <- Some pending
+
         Async.StartWithContinuations(
-            startRuntime (),
-            (fun running -> post (fun () -> startupSucceeded running)),
+            pending.Completion,
+            (fun result ->
+                post (fun () ->
+                    match result with
+                    | Ok running -> startupSucceeded running
+                    | Error error -> startupFailed error)),
             (fun error -> post (fun () -> startupFailed error)),
             (fun cancelled -> post (fun () -> startupFailed cancelled)))
+
+[<RequireQualifiedAccess>]
+module DesktopHost =
+    let start (desktop: IClassicDesktopStyleApplicationLifetime) =
+        let reportError (error: exn) = Trace.TraceError(error.ToString())
+        let stop (runtime: Runtime) = runtime.Stop()
+
+        let lifecycle =
+            DesktopLifecycle<Runtime>(
+                desktop,
+                (fun () -> StartupOperation.create (Runtime.live Shell.postToDispatcher) stop),
+                stop,
+                (fun runtime ->
+                    let env = runtime.Env
+                    let createdWindow, connection =
+                        Shell.create runtime (Shell.folder env (if isNull desktop.Args then [||] else desktop.Args))
+                    createdWindow, (connection :> IDisposable)),
+                Shell.postToDispatcher,
+                reportError,
+                (fun exitCode -> desktop.Shutdown exitCode),
+                (fun timeout -> Async.Sleep(max 1 (int timeout.TotalMilliseconds))),
+                TimeSpan.FromSeconds 5.0,
+                ShutdownRequest.classify)
+
+        lifecycle.Start()
+        lifecycle
 
 type App() =
     inherit Application()
@@ -204,23 +378,7 @@ type App() =
 
     override this.OnFrameworkInitializationCompleted() =
         match this.ApplicationLifetime with
-        | :? IClassicDesktopStyleApplicationLifetime as desktop ->
-            let reportError (error: exn) = Trace.TraceError(error.ToString())
-
-            DesktopLifecycle<Runtime>(
-                desktop,
-                (fun () -> Runtime.live Shell.postToDispatcher),
-                _.Stop(),
-                (fun runtime ->
-                    let env = runtime.Env
-                    let window, connection =
-                        Shell.create runtime (Shell.folder env (if isNull desktop.Args then [||] else desktop.Args))
-                    window, (connection :> IDisposable)),
-                Shell.postToDispatcher,
-                reportError,
-                (fun exitCode -> desktop.Shutdown exitCode),
-                TimeSpan.FromSeconds 5.0)
-                .Start()
+        | :? IClassicDesktopStyleApplicationLifetime as desktop -> DesktopHost.start desktop |> ignore
         | _ -> ()
 
         base.OnFrameworkInitializationCompleted()

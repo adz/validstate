@@ -1,6 +1,7 @@
 namespace MyApp
 
 open System
+open System.Threading
 open System.Threading.Tasks
 open Axial
 open Axial.ElmishFlows
@@ -9,13 +10,18 @@ open Axial.Layers
 /// The running Axial application behind the UI. Axial.ElmishFlows owns its root scope and delivers every
 /// command and subscription result through the host's Post function.
 [<Sealed>]
-type Runtime internal (inner: ElmishRuntime<AppEnv>) =
+type Runtime internal (inner: ElmishRuntime<AppEnv>) as this =
+    let mutable stopRequests = 0
+
     member _.Env = inner.Environment
     member internal _.Elmish = inner
-    member _.Stop() = inner.Stop()
+    member _.StopRequests = Volatile.Read(&stopRequests)
+    member _.Stop() =
+        Interlocked.Increment(&stopRequests) |> ignore
+        inner.Stop()
 
     interface IAsyncDisposable with
-        member _.DisposeAsync() = ValueTask(inner.Stop() |> Async.StartAsTask)
+        member _.DisposeAsync() = ValueTask(this.Stop() |> Async.StartAsTask)
 
 module Runtime =
     let debounce = TimeSpan.FromMilliseconds 150.0

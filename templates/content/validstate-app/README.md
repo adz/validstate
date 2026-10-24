@@ -36,6 +36,7 @@ Commit and push, then `git tag v0.1.0 && git push origin v0.1.0`. The release wo
 
 - **Effects go through Axial services.** Guardrails turns a direct `File`, `DateTime.Now` or `Environment` call into a build error.
 - **Background results reach Elmish through `Axial.ElmishFlows`.** Its runtime posts command and subscription results to the UI thread; dispatching from a worker thread corrupts Elmish's single-threaded loop.
+- **The desktop host owns startup and shutdown races.** It stops a runtime that finishes provisioning after exit, bounds shutdown with an injected deadline, and never cancels an OS/session shutdown.
 - **Error types override `ToString`**, so they render under NativeAOT.
 - **Every AXAML binding is compiled** (`x:DataType`).
 

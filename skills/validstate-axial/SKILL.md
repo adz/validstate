@@ -152,7 +152,7 @@ let start platform post =
         platform
 ```
 
-Await startup before constructing the Elmish program or showing its first frame. On shutdown, let the host await `runtime.Stop()` while its event loop remains free; do not synchronously wait on the UI thread. `StopAndWait` and `IDisposable` are for non-UI boundaries.
+Await startup before constructing the Elmish program or showing its first frame. The host must retain cancellable ownership of provisioning: if shutdown wins the startup race, a runtime that appears later must be stopped by that owner without posting cleanup back to an event loop that may already have exited. On shutdown, let the host await `runtime.Stop()` while its event loop remains free; do not synchronously wait on the UI thread. Inject the host's delay/deadline operation into lifecycle coordination so timeout tests control it without wall-clock races. In Avalonia, use `WindowClosingEventArgs.CloseReason` to distinguish `OSShutdown` and never cancel an OS/session shutdown. `StopAndWait` and `IDisposable` are for non-UI boundaries.
 
 - Commands from UI code go in with synchronous `Queue.tryOffer`. Let `Sub.OfFlowStream.subscribe` own the program-lifetime stream that dequeues and produces result messages. Use a `Hub` when a separately provisioned service must publish to one or more subscriptions.
 - `Cache.make` needs `'env :> IHasClock`. A cache whose lookup needs the cache itself (nested archives) can hold it in a `ref` set right after `Cache.make`. `Cache` has no expiry or size cap; keep a small LRU of keys and `Cache.invalidate` the oldest.
